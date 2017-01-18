@@ -4,7 +4,7 @@ use std::io::stdout;
 use std::process::Command;
 use std::env;
 
-const BUILT_IN_COMMANDS: &'static [ &'static str ] = &["cd"];
+const BUILT_IN_COMMANDS: &'static [&'static str] = &["cd", "exit"];
 
 fn main() {
     // Load config files.
@@ -16,8 +16,6 @@ fn main() {
     // Perform shutdown/cleanup
 
     // Not handling this yet
-    // Exit
-    // std::process::exit(exit_code);
 }
 
 
@@ -34,37 +32,43 @@ fn rusty_shell_loop() -> i32 {
 
         show_prompt();
 
-        io::stdin().read_line(&mut line)
+        io::stdin()
+            .read_line(&mut line)
             .expect("Failed to read line");
         args = rsh_parse_line(&line);
-        exit_code = rsh_run(&args);
 
-        // TODO: Handle exit
-        // if exit_code != 0 {
-        //     break;
-        // }
+        // TODO: save exitcode?
+        exit_code = rsh_run(&args)
     }
 
     // Not handling this yet
     // exit_code
 }
 
+/// Render the command line prompt
 fn show_prompt() {
     let current_dir = env::current_dir().unwrap();
     print!("{} > ", current_dir.display());
     stdout().flush().ok().expect("Could not flush stdout");
 }
 
-fn rsh_cd(args: &Vec<&str>) {
+/// Buildint for changing directories
+pub fn rsh_cd(args: &Vec<&str>) -> i32 {
     if args.len() == 1 {
         println!("rsh: expected arguments to \"cd\"");
+        -1
     } else {
         match env::set_current_dir(args[1]) {
-            Ok(result) => result,
-            Err(err) => { println!("{}", err);}
+            Ok(_) => 0,
+            Err(err) => { println!("{}", err); -1},
         }
     }
+}
 
+#[allow(unreachable_code)]
+fn rsh_exit() -> i32 {
+    std::process::exit(0);
+    0
 }
 
 /// Split a line into command and args
@@ -77,15 +81,15 @@ pub fn rsh_run(args: &Vec<&str>) -> i32 {
     if args.len() == 0 {
         return 0;
     }
-    
-    // Draft way of handling built in commands
-    if BUILT_IN_COMMANDS.contains(&args[0]) {
-        if args[0] == "cd" {
-            rsh_cd(&args);
-        }
 
-        // TODO: propagate code
-        return 0
+    // D(r)aft way of handling built in commands
+    if BUILT_IN_COMMANDS.contains(&args[0]) {
+        let exit_code = match args[0] {
+            "cd" => rsh_cd(&args),
+            "exit" => rsh_exit(),
+            _ => -1,
+        };
+        return exit_code;
     }
 
     let mut command = Command::new(args[0]);
@@ -98,7 +102,10 @@ pub fn rsh_run(args: &Vec<&str>) -> i32 {
     // Print the error otherwise
     match command.status() {
         Ok(result) => result.code().unwrap_or(-1),
-        Err(err) => { println!("{}: {}", args[0], err); 0 }
+        Err(err) => {
+            println!("{}: {}", args[0], err);
+            err.raw_os_error().unwrap_or(-1)
+        }
     }
 }
 
@@ -121,6 +128,17 @@ mod tests {
     fn test_rsh_run() {
         let parsed_command = vec!["pwd"];
         let exit_code = rsh_run(&parsed_command);
+        assert_eq!(exit_code, 0);
+    }
+
+    #[test]
+    fn test_rsh_cd() {
+        let parsed_command_single = vec!["cd"];
+        let exit_code = rsh_cd(&parsed_command_single);
+        assert_eq!(exit_code, -1);
+
+        let parsed_command_single = vec!["cd", ".."];
+        let exit_code = rsh_cd(&parsed_command_single);
         assert_eq!(exit_code, 0);
     }
 }
